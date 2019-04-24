@@ -1,8 +1,8 @@
 setwd('C:/Users/HK/Desktop/GitHub/Graduate/Bayesian')
 library(rjags)
 
-
-##### Ex 5-1 #####
+##### CH5. JAGS #####
+##### Ex 5-1
 
 # JAGS 모형 설정
 modelString <- "model
@@ -87,7 +87,7 @@ acceptRate <- 1 - rejectionRate(codaSamples)
 acceptRate
 
 
-##### Ex 5-2 #####
+##### Ex 5-2
 dat <- read.csv("Data/immigrants.csv")
 y <- dat$wage
 n <- length(y)

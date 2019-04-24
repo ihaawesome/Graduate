@@ -3,29 +3,30 @@ library(leaps)
 library(glmnet)
 library(pls)
 
-########## Chapter 6: Model Selection ########## 
+########## Chapter 6: Linear Model Selection and Regularization ########## 
 
-##### Lab 1: Best Subset Selection #####
-
+##### 6.5 Lab 1: Subset Selection Methods #####
+##### 6.5.1 Best Subset Selection
 fix(Hitters)
 names(Hitters)
 dim(Hitters)
-sum(is.na(Hitters$Salary))
+sum(is.na(Hitters$Salary))  
 Hitters <- na.omit(Hitters)
 dim(Hitters)
 sum(is.na(Hitters))
 
-regfit.full <- regsubsets(Salary ~ ., Hitters)
+regfit.full <- regsubsets(Salary ~ ., Hitters) 
 summary(regfit.full)
-
-regfit.full<- regsubsets(Salary ~ ., data = Hitters, nvmax = 19)
+# default method = "both"
+# default nvmax = 8
+regfit.full<- regsubsets(Salary ~ ., data = Hitters, nvmax = 19) 
 reg.summary <- summary(regfit.full)
 names(reg.summary)
 reg.summary$rsq
 
 par(mfrow = c(2, 2))
 plot(reg.summary$rss, xlab = "Number of Variables", ylab = "RSS", type = "l")
-plot(reg.summary$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq", type = "l")
+plot(reg.summary$adjr2, xlab = "Number of Variables", ylab = "Adjusted Rsq", type = "l")
 which.max(reg.summary$adjr2)
 points(11, reg.summary$adjr2[11], col = "red", cex = 2, pch = 20)
 plot(reg.summary$cp, xlab = "Number of Variables", ylab = "Cp", type = 'l')
@@ -40,23 +41,23 @@ plot(regfit.full, scale = "Cp")
 plot(regfit.full, scale = "bic")
 coef(regfit.full, 6)
 
-
-##### Forward and Backward Stepwise Selection
-regfit.fwd <- regsubsets(Salary ~ ., data=Hitters, nvmax=19, method = "forward")
+##### 6.5.2 Forward and Backward Stepwise Selection
+regfit.fwd <- regsubsets(Salary ~ ., data = Hitters, nvmax = 19, method = "forward")
 summary(regfit.fwd)
-regfit.bwd <- regsubsets(Salary~., data = Hitters, nvmax = 19, method = "backward")
+regfit.bwd <- regsubsets(Salary ~ ., data = Hitters, nvmax = 19, method = "backward")
 summary(regfit.bwd)
 coef(regfit.full, 7)
 coef(regfit.fwd, 7)
 coef(regfit.bwd, 7)
 
-##### Choosing Among Models
-
+##### 6.5.3 Choosing Among Models
+# validation approach
 set.seed(1)
 train <- sample(c(TRUE, FALSE), nrow(Hitters), rep = TRUE)
 test <- !train
 regfit.best <- regsubsets(Salary ~ ., data = Hitters[train,], nvmax = 19)
-test.mat <- model.matrix(Salary~., data = Hitters[test,])
+test.mat <- model.matrix(Salary ~ ., data = Hitters[test,]) # design matrix
+
 val.errors <- rep(NA, 19)
 for(i in 1:19){
   coefi <- coef(regfit.best, id = i)
@@ -67,6 +68,7 @@ val.errors
 which.min(val.errors)
 coef(regfit.best, 10)
 
+# make predict function for regsubsets object
 predict.regsubsets <- function(object, newdata, id, ...) {
   form <- as.formula(object$call[[2]])
   mat <- model.matrix(form, newdata)
@@ -77,6 +79,7 @@ predict.regsubsets <- function(object, newdata, id, ...) {
 regfit.best <- regsubsets(Salary ~ ., data = Hitters, nvmax = 19)
 coef(regfit.best, 10)
 
+# k-folds
 k <- 10
 set.seed(1)
 folds <- sample(1:k, nrow(Hitters), replace = TRUE)
@@ -84,8 +87,11 @@ cv.errors <- matrix(NA, k, 19, dimnames = list(NULL, paste(1:19)))
 for(j in 1:k) {
   best.fit <- regsubsets(Salary ~ ., data = Hitters[folds!=j,], nvmax = 19)
   for(i in 1:19) {
-    pred <- predict(best.fit, Hitters[folds==j,],id = i)
+    pred <- predict(best.fit, Hitters[folds==j,], id = i) 
     cv.errors[j,i] <- mean((Hitters$Salary[folds==j]-pred)^2)
+    # cv.errors[j,i]
+    # j번째 테스트 셋에 대한 cv-error을 계산할 때 나머지로 적합한 regsubsets에서 
+    # i개 변수를 사용한 모형으로 predict해서 MSE 계산
   }
 }
 (mean.cv.errors <- apply(cv.errors, 2, mean))
@@ -96,86 +102,95 @@ reg.best <- regsubsets(Salary ~ ., data = Hitters, nvmax = 19)
 coef(reg.best, 11)
 
 
-##### Lab 2: Ridge Regression and the Lasso #####
-
-x <- model.matrix(Salary~., Hitters)[,-1]
+##### 6.6 Lab 2: Ridge Regression and the Lasso #####
+x <- model.matrix(Salary ~ ., Hitters)[,-1] # intercepts 제외
 y <- Hitters$Salary
 
-##### Ridge Regression
+##### 6.6.1 Ridge Regression
+# glmnet(alpha = 0)
 grid <- 10^seq(10, -2, length = 100)
 ridge.mod <- glmnet(x, y, alpha = 0, lambda = grid)
 dim(coef(ridge.mod))
-ridge.mod$lambda[50]
-coef(ridge.mod)[,50]
-sqrt(sum(coef(ridge.mod)[-1,50]^2))
-ridge.mod$lambda[60]
+ridge.mod$lambda[50] 
+coef(ridge.mod)[,50] 
+sqrt(sum(coef(ridge.mod)[-1,50]^2)) # large lambda : small l2
+ridge.mod$lambda[60] 
 coef(ridge.mod)[,60]
-sqrt(sum(coef(ridge.mod)[-1,60]^2))
+sqrt(sum(coef(ridge.mod)[-1,60]^2)) # small lambda : large l2
 predict(ridge.mod, s = 50, type = "coefficients")[1:20,]
+
 set.seed(1)
-train=sample(1:nrow(x), nrow(x)/2)
-test=(-train)
-y.test=y[test]
-ridge.mod=glmnet(x[train,],y[train],alpha=0,lambda=grid, thresh=1e-12)
-ridge.pred=predict(ridge.mod,s=4,newx=x[test,])
+train <- sample(1:nrow(x), nrow(x)/2)
+test <- (-train)
+y.test <- y[test]
+ridge.mod <- glmnet(x[train,], y[train], alpha = 0, lambda = grid, thresh = 1e-12)
+
+ridge.pred <- predict(ridge.mod, s = 4, newx = x[test,])
 mean((ridge.pred-y.test)^2)
-mean((mean(y[train])-y.test)^2)
-ridge.pred=predict(ridge.mod,s=1e10,newx=x[test,])
+
+# large lambda ~ null model
+mean((mean(y[train])-y.test)^2) 
+ridge.pred <- predict(ridge.mod, s = 1e10, newx = x[test,])
+mean((ridge.pred-y.test)^2) 
+
+# small lambda ~ least squares 
+ridge.pred <- predict(ridge.mod, s = 0, newx = x[test,], exact = T)
 mean((ridge.pred-y.test)^2)
-ridge.pred=predict(ridge.mod,s=0,newx=x[test,],exact=T)
-mean((ridge.pred-y.test)^2)
-lm(y~x, subset=train)
-predict(ridge.mod,s=0,exact=T,type="coefficients")[1:20,]
+lm(y ~ x, subset = train)
+predict(ridge.mod, s = 0, exact = T, type = "coefficients")[1:20,]
+
 set.seed(1)
-cv.out=cv.glmnet(x[train,],y[train],alpha=0)
-plot(cv.out)
-bestlam=cv.out$lambda.min
+cv.out <- cv.glmnet(x[train,], y[train], alpha = 0)
+plot(cv.out) # 해석?
+bestlam <- cv.out$lambda.min
 bestlam
-ridge.pred=predict(ridge.mod,s=bestlam,newx=x[test,])
+ridge.pred <- predict(ridge.mod, s = bestlam, newx = x[test,])
 mean((ridge.pred-y.test)^2)
-out=glmnet(x,y,alpha=0)
-predict(out,type="coefficients",s=bestlam)[1:20,]
+# cv-error가 가장 작은 lambda로 다시 Ridge 적합
+out <- glmnet(x, y, alpha = 0) 
+predict(out, type = "coefficients", s = bestlam)[1:20,]
+# Note: Ridge는 계수의 크기를 줄일 뿐 변수 선택을 하지 않는다
 
-##### The Lasso
 
-lasso.mod=glmnet(x[train,],y[train],alpha=1,lambda=grid)
+##### 6.6.2 The Lasso
+lasso.mod <- glmnet(x[train,], y[train], alpha = 1, lambda = grid)
 plot(lasso.mod)
+
 set.seed(1)
-cv.out=cv.glmnet(x[train,],y[train],alpha=1)
+cv.out <- cv.glmnet(x[train,], y[train], alpha = 1)
 plot(cv.out)
-bestlam=cv.out$lambda.min
-lasso.pred=predict(lasso.mod,s=bestlam,newx=x[test,])
+bestlam <- cv.out$lambda.min
+lasso.pred <- predict(lasso.mod, s = bestlam, newx = x[test,])
 mean((lasso.pred-y.test)^2)
-out=glmnet(x,y,alpha=1,lambda=grid)
-lasso.coef=predict(out,type="coefficients",s=bestlam)[1:20,]
+out <- glmnet(x, y, alpha = 1, lambda = grid)
+lasso.coef <- predict(out,type = "coefficients", s = bestlam)[1:20,]
 lasso.coef
 lasso.coef[lasso.coef!=0]
 
 
-##### Lab 3: PCR and PLS Regression #####
+##### 6.7 Lab 3: PCR and PLS Regression #####
 
-##### Principal Components Regression
-
+##### 6.7.1 Principal Components Regression
 set.seed(2)
 pcr.fit <- pcr(Salary ~ ., data = Hitters, scale = TRUE, validation = "CV")
 summary(pcr.fit)
 validationplot(pcr.fit, val.type = "MSEP")
 
 set.seed(1)
-pcr.fit <- pcr(Salary~., data = Hitters, subset = train, scale = TRUE, validation = "CV")
+pcr.fit <- pcr(Salary ~ ., data = Hitters, subset = train, scale = TRUE, validation = "CV")
 validationplot(pcr.fit, val.type = "MSEP")
-pcr.pred <- predict(pcr.fit, x[test,], ncomp = 7)
+pcr.pred <- predict(pcr.fit, x[test,], ncomp = 7) # 7 Components
 mean((pcr.pred-y.test)^2)
 
 pcr.fit <- pcr(y ~ x, scale = TRUE, ncomp = 7)
 summary(pcr.fit)
 
-##### Partial Least Squares
+##### 6.7.2 Partial Least Squares
 set.seed(1)
 pls.fit <- plsr(Salary ~ ., data = Hitters, subset = train, scale = TRUE, validation = "CV")
 summary(pls.fit)
 validationplot(pls.fit, val.type = "MSEP")
-pls.pred <- predict(pls.fit,x[test,], ncomp = 2)
+pls.pred <- predict(pls.fit, x[test,], ncomp = 2)
 mean((pls.pred-y.test)^2)
 pls.fit <- plsr(Salary ~ ., data = Hitters, scale = TRUE, ncomp = 2)
 summary(pls.fit)
