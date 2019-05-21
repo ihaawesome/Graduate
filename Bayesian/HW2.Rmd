@@ -1,0 +1,166 @@
+---
+title: "Bayesian Statistics: HomeWork"
+author: "182STG18 이하경"
+date: "2019.05.21"
+output: 
+  prettydoc::html_pretty:
+    theme: leonids
+---
+```{r setup, include=FALSE}
+library(rjags)
+library(dplyr)
+library(data.table)
+knitr::opts_knit$set(root.dir = 'C:/Users/HK/Desktop/GitHub/Graduate/Bayesian')
+```
+
+## 10장. MCMC를 이용한 베이지안 변수선택
+
+**- Stochastic Search Variable Selection(SSVS)**  
+**- Gibbs Variable Selection(GVS)**  
+  
+### 1. 선형회귀모형  
+  
+ 예 10.1에서의 선형회귀모형에 GVS를 적용해 빈도가 가장 높은 조합으로 변수선택을 수행해보고 교재의 SSVS를 이용한 결과와 비교한다. 설명변수 중 x1, ..., x4의 상관계수가 약 0.8이 되도록 한다.  
+```{r warnings=FALSE, message=FALSE}
+# Simulation Data 
+n <- 200 ; k <- 8
+set.seed(1)
+x <- matrix(rnorm(n*k), n, k) ; z <- rnorm(n)
+for (i in 1:4) x[,i] <- x[,i] + 2*z 
+  
+beta0.true <- 0
+beta.true <- c()
+for (m in 1:k) beta.true[m] <- 0.5**(m-1)
+y <- beta0.true + x %*% beta.true + rnorm(n)
+y <- as.vector(y)
+
+X <- cbind(rep(1, n), x)
+p <- ncol(X)
+
+summary(lm.out <- lm(y ~ ., data.frame(y, x)))
+summary(lm.step <- MASS::stepAIC(lm.out, direction = 'both', trace = 0))
+
+mu.beta <- lm.out$coefficients[1:p]
+var.beta <- diag(vcov(lm.out))[1:p]
+
+# Pseudo Prior 
+pseudo.beta.mean <- mu.beta
+pseudo.beta.var <- var.beta
+
+# Prior
+prior.beta.mean <- rep(0, p)
+prior.beta.var <- var.beta*100 
+
+# JAGS
+modelString <- '
+model { 
+  for (j in 1:p) { gbeta[j] <- gamma[j]*beta[j] }
+  for (i in 1:n) {
+    y[i] ~ dnorm(mu[i], invsigsq)
+    mu[i] <- inprod(X[i, 1:p], gbeta[1:p])
+  }
+
+  for (j in 1:p) { gamma[j] ~ dbern(0.5) }
+
+  for (j in 1:p) {
+    beta[j] ~ dnorm(mu.b[j], tau.b[j])
+    mu.b[j] <- gamma[j]*prior.beta.mean[j] + (1-gamma[j])*pseudo.beta.mean[j]
+    tau.b[j] <- gamma[j]/prior.beta.var[j] + (1-gamma[j])/pseudo.beta.var[j]
+  }
+  invsigsq ~ dgamma(0.01, 0.01)
+}
+'
+write(modelString, 'model-10.1-GVS.txt')
+
+
+dataList <- list(n = n, p = p, y = y, X = X,
+                 pseudo.beta.mean = pseudo.beta.mean, pseudo.beta.var = pseudo.beta.var,
+                 prior.beta.mean = prior.beta.mean, prior.beta.var = prior.beta.var)
+initsList <- list(beta = mu.beta, gamma = rep(1, p))
+
+
+# sampling
+nChains <- 3 ; nIter <- 10000
+jagsModel <- jags.model('model-10.1-GVS.txt', data = dataList, inits = initsList,
+                        n.chains = nChains, n.adapt = 3000)
+update(jagsModel, n.iter = 10000)
+codaSamples <- coda.samples(jagsModel, variable.names = c('gamma', 'beta'),
+                            n.chains = nChains, n.iter = nIter)
+summary(codaSamples)
+
+theta.Samples <- as.matrix(codaSamples)
+beta.Samples <- theta.Samples[,1:p]
+gamma.Samples <- theta.Samples[,(p+1):(p+p)]
+
+m <- gamma.Samples
+mm <- as.data.table(m)[, .N, by = eval(paste0('gamma[', seq_len(ncol(m)), ']'))]
+colnames(mm) <- c(paste0('g', 0:k), 'N')
+mm.order <- order(mm$N, decreasing = T)
+mm$N <- round(mm$N/(nChains*nIter), 4)
+gamma.hat <- as.numeric(mm[which.max(mm$N)])
+gamma.hat <- gamma.hat[1:p]
+gamma.hat
+```
+GVS 방법에서 선택된 변수는 x1, x2, x3, x4, x5이다.  
+이는 AIC 기준의 stepwise regression을 통해 선택된 모형에서 유의한 변수와 동일한 결과이다.  
+  
+  
+### 2. Baseball Salary Data  
+ Baseball Salary Data에 SSVS 방법을 적용하여 샘플링한 표본의 사후평균을 이용해 변수선택을 수행해보고 교재의 GVS 결과와 비교해본다.  
+```{r warnings=FALSE, message=FALSE}
+dat <- read.csv('Data/baseball.txt')
+colnames(dat)[1] <- 'y'
+
+y <- log(dat$y)
+n <- nrow(dat)
+x <- dat[,-1]
+k <- ncol(x)
+
+summary(lm.out <- lm(y ~ ., data.frame(y, x)))
+summary(lm.step <- MASS::stepAIC(lm.out, direction = 'both', trace = 0))
+
+
+# JAGS
+modelString <- '
+model {
+  for (i in 1:n) {
+    y[i] ~ dnorm(mu[i], invsigsq)
+    mu[i] <- beta0 + inprod(x[i,], beta[])
+  }
+  gamma0 ~ dbern(0.5)
+  for (j in 1:k) { gamma[j] ~ dbern(0.5) }
+  
+  beta0 ~ dnorm(mu.beta0, tau.beta0)
+  mu.beta0 <- 0
+  tau.beta0 <- (1-gamma0)/0.0001 + gamma0/100
+  for (j in 1:k) {
+    beta[j] ~ dnorm(mu.b[j], tau.b[j])
+    mu.b[j] <- 0
+    tau.b[j] <- (1-gamma[j])/0.0001 + gamma[j]/100 # spike and slab
+  }
+  invsigsq ~ dgamma(0.01, 0.01)
+}
+'
+write(modelString, file = 'model-baseball-SSVS.txt')
+
+
+dataList <- list(n = n, k = k, y = y, x = x)
+mu.beta0 <- coef(lm.out)[1]
+mu.beta <- coef(lm.out)[-1]
+initsList <- list(beta0 = mu.beta0, beta = mu.beta, gamma0 = 1, gamma = rep(1, k))
+
+# sampling
+nChains <- 3 ; nIter <- 30000
+jagsModel <- jags.model('model-baseball-SSVS.txt', data = dataList, inits = initsList,
+                        n.chains = nChains, n.adapt = 3000)
+update(jagsModel, n.iter = 10000)
+codaSamples <- coda.samples(jagsModel, variable.names = c('gamma0','gamma','beta0','beta'),
+                            n.chains = nChains, n.iter = nIter)
+
+theta.Samples <- as.matrix(codaSamples)
+theta.hat <- colMeans(theta.Samples)
+gamma.hat <- c(theta.hat['gamma0'], theta.hat[(k+2):(2*k+1)])
+gamma.hat
+```
+gamma의 사후평균을 기준으로 선택된 변수는 x0, x13, x15이다.  
+GVS, stepAIC를 이용한 방법보다 더 적은 수의 변수가 선택되었다.  
