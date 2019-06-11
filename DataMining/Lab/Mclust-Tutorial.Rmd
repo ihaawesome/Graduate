@@ -1,0 +1,102 @@
+---
+title: "Mclust: Tutorial"
+author: "HAKYUNG LEE"
+output: 
+  prettydoc::html_pretty:
+    theme: leonids
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(mclust)
+```
+  
+### Clustering  
+```{r fig.align='center', fig.height=6, fig.width=6}
+data(diabetes)
+class <- diabetes$class
+table(class)
+X <- diabetes[,-1]
+head(X)
+clPairs(X, class)
+```
+
+```{r fig.align='center', fig.height=6, fig.width=6}
+BIC <- mclustBIC(X, verbose = 0)
+plot(BIC)
+summary(BIC)
+```
+```{r fig.align='center', fig.height=6, fig.width=6}
+mod1 <- Mclust(X, x = BIC, verbose = 0)
+summary(mod1, parameters = TRUE)
+plot(mod1, what = 'classification')
+table(class, mod1$classification)
+```
+
+```{r fig.align='center', fig.height=6, fig.width=6}
+ICL <- mclustICL(X, verbose = 0)
+summary(ICL)
+plot(ICL)
+```
+
+```{r}
+(LRT <- mclustBootstrapLRT(X, modelName = 'VVV', verbose = 0))
+```
+  
+### Initialization  
+EM algorithm is used by mclust for MLE.  
+Initialization of EM is performed using partitions obtained from agglomerative hierarchical clustering.  
+```{r}
+(hc1 <- hc(X, modelName = 'VVV', use = 'SVD'))
+BIC1 <- mclustBIC(X, initialization = list(hcPairs = hc1), verbose = 0) # default
+summary(BIC1)
+(hc2 <- hc(X, modelName = 'VVV', use = 'VARS'))
+BIC2 <- mclustBIC(X, initialization = list(hcPairs = hc2), verbose = 0) 
+summary(BIC2)
+(hc3 <- hc(X, modelName = 'EEE', use = 'SVD'))
+BIC3 <- mclustBIC(X, initialization = list(hcPairs = hc3), verbose = 0) 
+summary(BIC3)
+```
+  
+Update BIC by merging the best results:  
+````{r fig.align='center', fig.height=6, fig.width=6}
+BIC <- mclustBICupdate(BIC1, BIC2, BIC3)
+summary(BIC)
+plot(BIC)
+```
+  
+Univariate fit using random starting points obtained by creating andom agglomerations and merging best results:  
+```{r fig.align='center', fig.height=6, fig.width=6}
+data(galaxies, package = 'MASS')
+galaxies <- galaxies / 1000
+
+BIC <- NULL
+for (j in 1:20) {
+  rBIC <- mclustBIC(galaxies, verbose = 0,
+                    intialization = list(hcPiars = randomPairs(galaxies)))
+  BIC <- mclustBICupdate(BIC, rBIC)
+}
+summary(BIC)
+plot(BIC)
+```
+  
+  
+### Classification  
+  
+### EDDA  
+```{r}
+data(iris)
+class <- iris$Species
+table(class)
+X <- iris[,1:4]
+head(X)
+```
+```{r fig.align='center', fig.height=6, fig.width=6}
+mod2 <- MclustDA(X, class, modelType = 'EDDA', verbose = 0)
+summary(mod2)
+plot(mod2, what = 'scatterplot')
+plot(mod2, what = 'classification')
+```

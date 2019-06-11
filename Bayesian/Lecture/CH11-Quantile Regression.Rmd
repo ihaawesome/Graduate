@@ -14,11 +14,11 @@ library(rjags)
 # CH11. 베이지안 분위 회귀분석 (Bayesian Quantile Regression Analysis)  
   
 ### 11.1 분위 회귀모형 (Quantile Regression Model)  
-```{r fig.align='center', fig.width=5, fig.height=4}
+```{r fig.align='center', fig.width=6, fig.height=4}
 u <- seq(-3, 3, length = 100)
 closs <- function(p, u) rho <- u*(p-1)*(u < 0) + u*p*(u >= 0) # Check-Loss
 
-plot(u, closs(0.5, u), type = 'l')
+plot(u, closs(0.5, u), type = 'l', ylab = 'check loss')
 lines(u, closs(0.1, u), lty = 2, col = 4)
 lines(u, closs(0.9, u), lty = 3, col = 2)
 legend(1.5, 0.8, lty = c(2, 1, 3), col = c(4, 1, 2), legend = c('p=0.1', 'p=0.5', 'p=0.9'))
@@ -44,8 +44,8 @@ modelString <- "
 model
 {
   for (i in 1:length(y)) {
-    fd[i] <- p * (1 - p) * exp(-check[i])       # likelihood
-    check[i] <- e[i] * (p - (1 - step(e[i])))   # check-loss (cf. step: 계단함수)
+    fd[i] <- p*(1-p)*exp(-check[i])       # likelihood
+    check[i] <- e[i]*(p-(1-step(e[i])))   # check-loss (cf. step: 계단함수)
     e[i] <- y[i] - inprod(x[i,1:K], beta[1:K])
     
     # use 0-1 trick #
@@ -61,19 +61,38 @@ writeLines(modelString, 'model-BQR.txt')
 #### 2) Gibb Sampling
 ```{r}
 modelString <- "
-model{
+model
+{
   theta <- (1-2*p)/(p*(1-p))
-  eta
+  eta <- 2/(p*(1-p))
+  
+  for (i in 1:length(y)) {
+    w[i] ~ dexp(sigsq)
+    y[i] ~ dnorm(mu.y[i], tau.y[i])
+    mu.y[i] <- inprod(x[i,1:K], beta[1:k]) + theta*w[i]
+    tau.y[i] <- 1/(eta*w[i]*sigsq)
+  }
+  
+  inv.sigsq ~ dgamma(a0, b0)
+  sigsq <- 1/sqrt(inv.sigsq)
+  
+  beta[1:K] ~ dmnorm(mu[], Tau[])
 }
 "
-# writeLines(modelString, 'model-BQR-latent.txt')
+writeLines(modelString, 'model-BQR-latent.txt')
 ```
   
   
 ### 11.5 실제 자료 분석 : Boston Housing Data  
+  
+- 선형 회귀모형을 적합시켜 얻은 계수 추정치를 정규 사전분포의 평균으로 사용하고 추정치의 분산에 100을 곱하여 사전분산으로 사용한다.  
+- 모수 $\sigma^2$의 사전분포로 IG(0.1, 0.1)을 가정한다.  
+- 0-1 기법을 사용하여 우도함수를 직접 지정하기 위하여 베르누이 분포를 따르는 가상 자료 Ones를 dataList에서 제공한다.  
+- 분위수 p=0.1, ..., 0.9에 대하여 분위 회귀모형 회귀계수 추정치를 구한 후 각 설명변수에 대해 분위수에 따른 추정치의 변화를 확인한다.  
+  
 ```{r}
 # load data
-boston <- read.table('Data/Boston_data.txt', header = T)
+boston <- read.table('C:/Users/HK/Desktop/GitHub/Graduate/Bayesian/Data/Boston_data.txt', header = T)
 x <- as.matrix(boston[,-3])
 x <- scale(x)
 x <- cbind(rep(1, nrow(x)), x)
@@ -115,5 +134,15 @@ for (ip in 1:length(p.set)) {
   beta.hat[ip, 1:K] <- quantile(mcmcSamples[,1:K], 0.5)
   beta.cu[ip, 1:K] <- quantile(mcmcSamples[,1:K], 0.025)
   beta.cl[ip, 1:K] <- quantile(mcmcSamples[,1:K], 0.975)
+  
+  par(mfrow = c(2, 3))
+  for (k in 2:7) {
+    plot(p.set, beta.hat[,k], type = 'l', 
+         ylim = c(min(beta.cl[,k]), max(beta.cu[,k])), 
+         xlab = 'p', ylab = colnames(x)[k])
+    lines(p.set, beta.cl[,k], col = 3)
+    lines(p.set, beta.cu[,k], col = 3)
+    abline(h = 0)
+  }
 }
 ```

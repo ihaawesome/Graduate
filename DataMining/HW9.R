@@ -40,7 +40,7 @@ ggplot(pc.two) + theme_bw() + theme(legend.position = 'top') +
 # (c)
 set.seed(10)
 (km.3class <- kmeans(X, 3, nstart = 100))
-cl.3class <- as.factor((3:1)[km.3class$cluster])
+cl.3class <- factor(c(3:1)[km.3class$cluster], levels = c(1:3))
 
 table(true = y, kmeans = cl.3class)
 ggplot(pc.two) + theme_bw() + theme(legend.position = 'top') +
@@ -49,7 +49,7 @@ ggplot(pc.two) + theme_bw() + theme(legend.position = 'top') +
 # (d)
 set.seed(10)
 (km.2class <- kmeans(X, 2, nstart = 100))
-cl.2class <- as.factor((2:1)[km.2class$cluster]) 
+cl.2class <- factor(c(3,1)[km.2class$cluster], levels = c(1:3)) 
 
 ggplot(pc.two) + theme_bw() + theme(legend.position = 'top') +
   geom_point(aes(PC1, PC2, shape = cl.2class, color = cl.2class), size = 2)
@@ -58,7 +58,7 @@ table(true = y, kmeans = cl.2class)
 # (e)
 set.seed(10)
 (km.4class <- kmeans(X, 4, nstart = 100))
-cl.4class <- as.factor(c(2,1,3,4)[km.4class$cluster]) 
+cl.4class <- factor(c(2,1,3,4)[km.4class$cluster], levels = c(1:4)) 
 
 ggplot(pc.two) + theme_bw() + theme(legend.position = 'top') +
   geom_point(aes(PC1, PC2, shape = cl.4class, color = cl.4class), size = 2)
@@ -77,7 +77,7 @@ table(true = y, kmeans = cl.pc)
 Xsc <- scale(X)
 set.seed(10)
 (km.scaled <- kmeans(Xsc, 3, nstart = 100))
-cl.scaled <- as.factor(c(1,3,2)[km.scaled$cluster])
+cl.scaled <- factor(c(1,3,2)[km.scaled$cluster], levels = c(1:3))
 ggplot(pc.two) + theme_bw() + theme(legend.position = 'top') +
   geom_point(aes(PC1, PC2, shape = cl.scaled, color = cl.scaled), size = 2)
 table(true = y, kmeans = cl.pc)

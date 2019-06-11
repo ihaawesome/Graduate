@@ -1,0 +1,411 @@
+---
+title: "Caret Tutorial"
+author: "HLEE"
+output: 
+  prettydoc::html_pretty:
+    theme: leonids
+    df_print: paged
+    fig_align: 'center' 
+    fig_height: 4
+    fig_width: 6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE
+)
+```
+
+# Caret Package  
+
+---  
+- for Classification and Regression Training
+
+  1. Data Preparation and Preprocessing  
+  2. Visualize the importance of variables  
+  3. Feature Selection using RFE  
+  4. Training and Tuning the model  
+  5. Ensembling the predictions  
+  
+  
+## 1. Data Preparation and Preprocessing  
+```{r}
+library(caret)
+
+# Import dataset
+data(OJ, package = 'ISLR')
+str(orange <- OJ)
+head(orange[,1:10])
+```
+  
+### 1.1 Split the training and test datasets  
+```{r}
+set.seed(100)
+
+# Step 1: Get row numbers for the training data
+trainRowNumbers <- createDataPartition(orange$Purchase, p = 0.8, list = FALSE)
+
+# Step 2: Create the training  dataset
+trainData <- orange[trainRowNumbers,]
+
+# Step 3: Create the test dataset
+testData <- orange[-trainRowNumbers,]
+
+# Store X and Y for later use.
+x = trainData[, 2:18]
+y = trainData$Purchase
+```
+  
+### 1.2 Descriptive statistics  
+  + number of missing  
+  + summary statistics  
+  + histogram
+```{r}
+library(skimr)
+skimmed <- skim_to_wide(trainData)
+skimmed[, c(1:5, 9:11, 13, 15:16)]
+```
+  
+### 1.3 impute missing values using preProcess()  
+```{r}
+# Create the knn imputation model on the training data
+preProcess_missingdata_model <- preProcess(trainData, method = 'knnImpute')
+preProcess_missingdata_model
+
+# Use the imputation model to predict the values of missing data points
+library(RANN)  # required for knnInpute
+trainData <- predict(preProcess_missingdata_model, newdata = trainData)
+anyNA(trainData)
+summary(trainData)
+```
+  + k=5 NN을 사용해 16개의 변수들을 센터링하고 결측값을 추정  
+  + 표준편차로 스케일링해서 최종 값을 채운다.
+  + 2개의 변수를 무시함  
+  
+### 1.4 create One-Hot Encoding (dummy variables)  
+```{r}
+# One-Hot Encoding
+dummies_model <- dummyVars(Purchase ~ ., data=trainData)
+
+# Create the dummy variables using predict
+trainData_mat <- predict(dummies_model, newdata = trainData)
+
+# # Convert to dataframe
+trainData <- data.frame(trainData_mat)
+
+# # See the structure of the new dataset
+str(trainData)
+```
+  
+### 1.5 trasform the data
+*Methods*  
+* **range**: Normalize values so it ranges between 0 and 1  
+* **center**: Subtract Mean  
+* **scale**: Divide by standard deviation  
+* **BoxCox**: Remove skewness leading to normality. Values must be > 0  
+* **YeoJohnson**: Like BoxCox, but works for negative values.  
+* **expoTrans**: Exponential transformation, works for negative values.  
+* **pca**: Replace with principal components  
+* **ica**: Replace with independent components  
+* **spatialSign**: Project the data to a unit circle  
+  
+- using 'range' transformation  
+```{r}
+preProcess_range_model <- preProcess(trainData, method = 'range')
+trainData <- predict(preProcess_range_model, newdata = trainData)
+
+# Append the Y variable
+trainData$Purchase <- y
+
+apply(trainData[, 1:10], 2, function(x) { c('min' = min(x), 'max' = max(x)) })
+```
+  
+  
+## 2. visualize the importance of variables  
+```{r, fig.height=5, fig.width=8}
+featurePlot(
+  x = trainData[, 1:18], 
+  y = trainData$Purchase, 
+  plot = "box",
+  strip = strip.custom(par.strip.text = list(cex = 0.7)),
+  scales = list(x = list(relation = "free"), y = list(relation = "free"))
+)
+featurePlot(
+  x = trainData[, 1:18], 
+  y = trainData$Purchase, 
+  plot = "density",
+  strip = strip.custom(par.strip.text = list(cex = 0.7)),
+            scales = list(x = list(relation = "free"), y = list(relation = "free"))
+)
+```
+  
+  
+## 3. feature selection using recursive feature elimination (RFE)  
+```{r}
+set.seed(100)
+options(warn = -1)
+
+subsets <- c(1:5, 10, 15, 18)
+
+ctrl <- rfeControl(
+  functions = rfFuncs,
+  method = "repeatedcv",
+  repeats = 5,
+  verbose = FALSE
+)
+
+# lmProfile <- rfe(
+#   x = trainData[,1:18], y = trainData$Purchase,
+#   sizes = subsets,
+#   rfeControl = ctrl
+# )
+# lmProfile
+```
+- 18개의 변수 중 3개의 변수 선택 (LoyalCH, PriceDiff, StoreID)  
+  
+  
+## 4. Training and Tuning the model  
+  
+### 4.1 train the model & interpret the results  
+```{r}
+# See available algorithms in caret
+(modelnames <- paste(names(getModelInfo()), collapse=',  '))
+```
+cf. 모델링할 때 서로 알고리즘이 다른 모형들로 구성하도록 한다.
+  
+**MARS** (method = 'earth')
+Multivariate Adaptive Regression Splines  
+- base 함수가 꺾이는 모양  
+```{r}
+modelLookup('earth')
+```
+```{r}
+# Set the seed for reproducibility
+set.seed(100)
+
+# Train the model using MARS and predict on the training data itself
+model_mars <- train(Purchase ~ ., data = trainData, method = 'earth')
+fitted <- predict(model_mars)
+model_mars
+plot(model_mars, main = "Model Accuracies with MARS")
+```
+  
+### 4.2 compute variable importance  
+```{r}
+varimp_mars <- varImp(model_mars)
+plot(varimp_mars, main = "Variable Importance with MARS")
+```
+  
+### 4.3 prepare the test dataset and predict
+```{r}
+# Step 1: Impute missing values 
+testData2 <- predict(preProcess_missingdata_model, testData)  
+
+# Step 2: Create one-hot encodings (dummy variables)
+testData3 <- predict(dummies_model, testData2)
+
+# Step 3: Transform the features to range between 0 and 1
+testData4 <- predict(preProcess_range_model, testData3)
+```
+```{r}
+head(testData4[, 1:10])
+```
+```{r}
+predicted <- predict(model_mars, testData4)
+head(predicted)
+```
+
+### 4.5 Confusion Matrix  
+```{r}
+confusionMatrix(
+  reference = testData$Purchase, 
+  data = predicted, 
+  mode = 'everything', positive = 'MM'
+)
+```
+classification의 performance measure는 매우 다양하다.  
+class가 balanced인 경우 accuracy가 가장 좋은 measure지만 unbalanced인 경우 다양한 measure를 사용할 수 있다.  
+  
+  
+## 5. hyperparameter tuning to optimize the model  
+* Set the *tuneLength*  
+* Define and set the *tuneGrid*  
+  
+### 5.1 trainControl()  
+*Cross Validation methods*
+  + ‘boot’: Bootstrap sampling  
+  + ‘boot632’: Bootstrap sampling with 63.2% bias correction applied  
+  + ‘optimism_boot’: The optimism bootstrap estimator  
+  + ‘boot_all’: All boot methods.  
+  + **‘cv’: k-Fold cross validation**  
+  + ‘repeatedcv’: Repeated k-Fold cross validation  
+  + ‘oob’: Out of Bag cross validation  
+  + ‘LOOCV’: Leave one out cross validation  
+  + ‘LGOCV’: Leave group out cross validation  
+```{r eval=FALSE}
+# Define the training control
+fitControl <- trainControl(
+    method = 'cv',                     # k-fold cross validation
+    number = 5,                        # number of folds
+    savePredictions = 'final',         # saves predictions for optimal tuning parameter
+    classProbs = T,                    # should class probabilities be returned
+    summaryFunction = twoClassSummary  # results summary function
+) 
+```
+  
+### 5.2 Hyper Parameter Tuning using *tuneLength*  
+```{r eval=FALSE}
+# Step 1: Tune hyper parameters by setting tuneLength
+set.seed(100)
+model_mars2 <- train(
+  Purchase ~ ., data = trainData, 
+  method = 'earth', tuneLength = 5, 
+  metric = 'ROC', # accuracy 등 가능
+  trControl = fitControl
+)
+model_mars2
+
+# Step 2: Predict on testData and Compute the confusion matrix
+predicted2 <- predict(model_mars2, testData4)
+confusionMatrix(
+  reference = testData$Purchase, data = predicted2, 
+  mode = 'everything', positive = 'MM'
+)
+```
+  
+### 5.3 Hyper Parameter Tuning using *tuneGrid*  
+```{r eval=FALSE}
+# Step 1: Define the tuneGrid
+marsGrid <- expand.grid(nprune = c(2, 4, 6, 8, 10), degree = c(1, 2, 3))
+
+# Step 2: Tune hyper parameters by setting tuneGrid
+set.seed(100)
+model_mars3 <- train(
+  Purchase ~ ., data = trainData, 
+  method = 'earth', metric = 'ROC', tuneGrid = marsGrid, trControl = fitControl
+)
+model_mars3
+
+# Step 3: Predict on testData and Compute the confusion matrix
+predicted3 <- predict(model_mars3, testData4)
+confusionMatrix(
+  reference = testData$Purchase, data = predicted3, 
+  mode = 'everything', positive = 'MM'
+)
+```
+  
+  
+## 6. evaluate performance of ML algorithms  
+
+### 6.1 Adaboost  
+```{r eval=FALSE}
+set.seed(100)
+
+# Train the model using adaboost
+model_adaboost <- train(
+  Purchase ~ ., data = trainData, 
+  method = 'adaboost', tuneLength = 2, trControl = fitControl
+)
+model_adaboost
+```
+### 6.2 Random Forest  
+```{r eval=FALSE}
+set.seed(100)
+
+# Train the model using rf
+model_rf <- train(
+  Purchase ~ ., data = trainData, 
+  method = 'rf', tuneLength = 5, trControl = fitControl
+)
+model_rf
+```
+### 6.3 XGBoost DART 
+```{r eval=FALSE}
+set.seed(100)
+
+# Train the model using xgboost
+# with dropout
+model_xgbDART <- train(
+  Purchase ~ ., data = trainData, 
+  method = 'xgbDART', tuneLength = 5, trControl = fitControl, verbose = 0
+)
+model_xgbDART
+```
+### 6.4 SVM
+```{r eval=FALSE}
+set.seed(100)
+
+# Train the model using MARS
+model_svmRadial <- train(
+  Purchase ~ ., data = trainData, 
+  method = 'svmRadial', tuneLength = 15, trControl = fitControl
+)
+model_svmRadial
+```
+  
+### 6.5 compare the models with resamples()
+```{r eval=FALSE}
+# Compare model performances using resample()
+models_compare <- resamples(
+  list(ADABOOST = model_adaboost, 
+       RF = model_rf, 
+       XGBDART = model_xgbDART, 
+       MARS = model_mars3, 
+       SVM = model_svmRadial)
+)
+
+# Summary of the models performances
+summary(models_compare)
+# Draw box plots to compare models
+scales <- list(x = list(relation = "free"), y = list(relation = "free"))
+bwplot(models_compare, scales = scales)
+```
+  
+  
+## 7. Ensenbling the predictions  
+### 7.1 ensenble predictions from multiple models  
+```{r eval=FALSE}
+library(caretEnsemble)
+
+# Stacking Algorithms - Run multiple algos in one call.
+trainControl <- trainControl(
+  method = "repeatedcv", 
+  number = 10, 
+  repeats = 3,
+  savePredictions = TRUE, 
+  classProbs = TRUE
+)
+
+algorithmList <- c('rf', 'adaboost', 'earth', 'xgbDART', 'svmRadial')
+
+set.seed(100)
+models <- caretList(
+  Purchase ~ ., data = trainData, 
+  trControl = trainControl, methodList = algorithmList
+) 
+results <- resamples(models)
+summary(results)
+# Box plots to compare models
+scales <- list(x = list(relation = "free"), y = list(relation = "free"))
+bwplot(results, scales = scales)
+```
+  
+### 7.2 combine the predictions of multiple models to form a final prediction  
+```{r eval=FALSE}
+# Create the trainControl
+set.seed(101)
+stackControl <- trainControl(
+  method = "repeatedcv", 
+  number = 10, 
+  repeats = 3,
+  savePredictions = TRUE, 
+  classProbs = TRUE
+)
+
+# Ensemble the predictions of `models` to form a new combined prediction based on glm
+stack.glm <- caretStack(
+  models, method = "glm", metric = "Accuracy", trControl = stackControl
+)
+print(stack.glm)
+```
+앙상블 모형이 가장 좋은 것은 서로 많이 다른 방법론의 prediction을 결합하는 것이다.
