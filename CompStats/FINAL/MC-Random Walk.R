@@ -1,9 +1,8 @@
-library(dplyr)
-library(ggplot2)
+library(tidyverse)
 library(reshape2)
-setwd("C:/Users/HK/Desktop/18-2/CS/FINAL")
+# setwd("C:/Users/HK/Desktop/18-2/CS/FINAL")
 
-############################## Self Avoiding Walks ##############################
+# Self Avoiding Walks -----------------------------------------------------------------------------------
 
 # 현재 위치에서 4방향으로의 좌표
   neighbor <- function(i, j) {
@@ -41,7 +40,7 @@ setwd("C:/Users/HK/Desktop/18-2/CS/FINAL")
     return(df)
   }
   
-  # Path 그리기
+# Path 그리기
   gpath <- function(df, t) {
     n <- nrow(df)
     title1 <- ifelse(n < t+1, "Trapped!", "Flying...")
@@ -122,8 +121,9 @@ setwd("C:/Users/HK/Desktop/18-2/CS/FINAL")
   
   ggplot(MC_SAW4[[2]]) + geom_bar(aes(x = Dt)) + theme_light()
 
-  
-############################## Random Walk ##############################
+ 
+   
+# Random Walk -------------------------------------------------------------------------------------------
   
   RW <- function(t) {
     df <- matrix(0, ncol = 2)
@@ -168,7 +168,8 @@ setwd("C:/Users/HK/Desktop/18-2/CS/FINAL")
   log(mean(MC_SAW_D1$summary$Dt), base = 100)/2
 
 
-############################## Pivot Algorithm (Try) ##############################
+  
+# Pivot Algorithm (Failed) ------------------------------------------------------------------------------
   
   pivot <- function(pivot, point) { # point as vector
     P <- t(pivot) ; A <- t(point)
